@@ -2,41 +2,22 @@
 
 declare(strict_types=1);
 
-// ==================== CONFIG ====================
 $BOT_TOKEN = '8986995462:AAHYYyD61BFTZSzlPTQF4ksmvQsnt9FePtQ';
 
-// Allowed users (Whitelist)
-$ALLOWED_USERS = [
-    8445082757,   // Main user
-    // Add more user IDs here if needed
-];
+$ALLOWED_USERS = [8445082757];
 
-// ==================== DATABASE ====================
 $dbFile = __DIR__ . '/todo_bot.db';
 $pdo = new PDO('sqlite:' . $dbFile);
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-$pdo->exec('CREATE TABLE IF NOT EXISTS tasks (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    INTEGER,
-    category   TEXT,
-    text       TEXT,
-    done       INTEGER   DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)');
+$pdo->exec('CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, category TEXT, text TEXT, done INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
 
-// ==================== TELEGRAM API ====================
+// API Functions
 function apiRequest($method, $payload) {
     global $BOT_TOKEN;
     $ch = curl_init("https://api.telegram.org/bot{$BOT_TOKEN}/{$method}");
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($payload),
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_RETURNTRANSFER => true
-    ]);
-    $res = curl_exec($ch);
-    curl_close($ch);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode($payload), CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_RETURNTRANSFER => true]);
+    $res = curl_exec($ch); curl_close($ch);
     return json_decode($res ?: '{}', true) ?? [];
 }
 
@@ -56,7 +37,7 @@ function answerCallback($cb_id) {
     apiRequest('answerCallbackQuery', ['callback_query_id' => $cb_id]);
 }
 
-// ==================== UI ====================
+// UI
 
 function getMainKeyboard() {
     return ['inline_keyboard' => [
@@ -85,7 +66,6 @@ function formatTaskList($user_id, $pdo) {
 
     $text = "📋 <b>لیست کارهای شما</b>\n";
     $current = null;
-
     foreach ($tasks as $t) {
         if ($t['category'] !== $current) {
             if ($current !== null) $text .= "\n";
@@ -122,11 +102,9 @@ $user_id = $update['message']['from']['id'] ?? $update['callback_query']['from']
 
 if (!$chat_id || !$user_id) { echo 'OK'; exit; }
 
-// Check if user is allowed
 if (!in_array((int)$user_id, $ALLOWED_USERS)) {
     sendMessage($chat_id, "⛔️ شما مجاز به استفاده از این ربات نیستید.");
-    echo 'OK';
-    exit;
+    echo 'OK'; exit;
 }
 
 // Message Handler
@@ -138,8 +116,9 @@ if (isset($update['message']['text'])) {
         echo 'OK'; exit;
     }
 
-    // Any text = Add new task
-    setStateForAdd($user_id, $text, $pdo); // We'll define this
+    // Any text message = Add new task → Ask for category
+    // We store the task text temporarily
+    file_put_contents("pending_task_{$user_id}.txt", $text);
     sendMessage($chat_id, "📂 دسته را انتخاب کن:", getCategoryKeyboard());
 }
 
@@ -153,9 +132,20 @@ if (isset($update['callback_query'])) {
 
     if (str_starts_with($data, 'cat_')) {
         $category = substr($data, 4);
-        // Get pending task text from temp storage or improve this part
-        // For now, simple version
-        editMessage($chat_id, $msg_id, "کار اضافه شد!", getMainKeyboard());
+        $pendingFile = "pending_task_{$user_id}.txt";
+
+        if (file_exists($pendingFile)) {
+            $taskText = file_get_contents($pendingFile);
+            @unlink($pendingFile);
+
+            // Insert into database
+            $pdo->prepare("INSERT INTO tasks (user_id, category, text) VALUES (?,?,?)")->execute([$user_id, $category, $taskText]);
+
+            // Edit the message to show updated list
+            editMessage($chat_id, $msg_id, formatTaskList($user_id, $pdo), getMainKeyboard());
+        } else {
+            editMessage($chat_id, $msg_id, "⚠️ خطا در ذخیره کار. دوباره امتحان کن.", getMainKeyboard());
+        }
     }
 
     if ($data === 'mark_done_menu') {
@@ -179,18 +169,3 @@ if (isset($update['callback_query'])) {
 }
 
 echo 'OK';
-
-function setStateForAdd($user_id, $text, $pdo) {
-    // Temporary simple storage for task text
-    file_put_contents("pending_task_{$user_id}.txt", $text);
-}
-
-function getPendingTaskText($user_id) {
-    $file = "pending_task_{$user_id}.txt";
-    if (file_exists($file)) {
-        $text = file_get_contents($file);
-        @unlink($file);
-        return $text;
-    }
-    return null;
-}
