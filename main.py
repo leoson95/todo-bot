@@ -9,6 +9,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 application = None
 
@@ -22,20 +23,17 @@ def get_application():
     return application
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 سلام! من بات اکو هستم.\n\n"
-        "هر پیامی بفرستی برات تکرار می‌کنم."
-    )
+    await update.message.reply_text("👋 سلام! من بات اکو هستم.\nهر پیامی بفرستی برات تکرار می‌کنم.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("دستورات:\n/start - شروع\n/help - راهنما\n\nهر متنی بفرست، اکو می‌کنم.")
+    await update.message.reply_text("دستورات:\n/start\n/help\n\nهر متنی بفرست اکو می‌کنم.")
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(update.message.text)
 
 @app.route("/")
 def index():
-    return "Bot is running!"
+    return "Bot is running on Railway!"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -45,5 +43,5 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8443))
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
