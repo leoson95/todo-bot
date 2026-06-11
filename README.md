@@ -1,13 +1,18 @@
-# TodoBot
+# TodoBot - PHP Version
 
-A clean and beautiful personal Todo List Telegram bot with reminders.
+A clean and simple personal Todo List Telegram bot written in PHP.
 
-## Features
-- Password protected
+## Features (Planned)
+- Password protection
 - Fixed main message (no chat spam)
-- Clickable tasks (mark as done)
-- Morning reminders
-- Custom per-task reminders
-- Clean inline keyboard UI
+- Categories support
+- Click to mark task as done
+- Morning reminders (future)
 
-Built for personal use (1-2 users).
+## Tech Stack
+- Pure PHP + Webhook
+- SQLite for storage
+- No heavy frameworks
+
+## Deployment
+Optimized for Railway free tier.
