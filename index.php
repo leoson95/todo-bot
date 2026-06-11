@@ -111,7 +111,6 @@ function renderMainList($chat_id, $db) {
         $textOutput .= "🕊️ <i>در حال حاضر هیچ کاری در لیست شما وجود ندارد!</i>\n\n";
         $textOutput .= "━━━━━━━━━━━━━━━━━━━━━\n\n";
     }
-    $textOutput .= "💡 <b>راهنما:</b> برای افزودن کار جدید، کافیست متن آن را بنویسید و ارسال کنید.\n";
     // دکمه مدیریت واحد
     $keyboard = [[['text' => "⚡ مدیریت و اتمام کارها", 'callback_data' => "manage_start"]]];
     return ['text' => $textOutput, 'keyboard' => $keyboard];
@@ -178,7 +177,7 @@ if (!$is_callback) {
     if (strpos($callback_data, 'addcat_') === 0) {
         $category = str_replace('addcat_', '', $callback_data);
         if ($session['state'] === 'AWAITING_ADD_CAT' && !empty($session['temp_text'])) {
-            $db->prepare("INSERT INTO tasks (chat_id, text, category) VALUES (?, ?, ?) " )->execute([$chat_id, $session['temp_text'], $category]);
+            $db->prepare("INSERT INTO tasks (chat_id, text, category) VALUES (?, ?, ?) ")->execute([$chat_id, $session['temp_text'], $category]);
         }
        
         $db->prepare("UPDATE user_session SET state = NULL, temp_text = NULL, temp_message_id = NULL WHERE chat_id = ?")->execute([$chat_id]);
