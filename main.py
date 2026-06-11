@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -73,7 +74,7 @@ async def password_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ رمز صحیح بود. خوش آمدی!")
             await update.message.reply_text(text, reply_markup=get_main_keyboard())
         else:
-            await update.message.reply_text("❌ رمز اشتباه است. مجدداً تلاش کن.")
+            await update.message.reply_text("❌ رمز اشتباه است. مجدحداً تلاش کن.")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -142,8 +143,17 @@ async def webhook():
         logger.error(f"Webhook error: {e}")
         return "Error", 500
 
+async def initialize_bot():
+    await application.initialize()
+    await application.start()
+    logger.info("🚀 Application initialized successfully!")
+
 if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 8080))
+    
+    # Initialize the Application before starting Flask
+    asyncio.run(initialize_bot())
+    
     logger.info(f"🚀 Starting bot on port {port}")
     app.run(host="0.0.0.0", port=port)
