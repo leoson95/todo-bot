@@ -124,13 +124,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("کار را به کدام دسته اضافه کنی؟", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-async def main():
+if __name__ == "__main__":
     init_db()
     
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         logger.error("TELEGRAM_BOT_TOKEN not found!")
-        return
+        exit(1)
     
     application = Application.builder().token(token).build()
     
@@ -139,7 +139,4 @@ async def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     
     logger.info("🚀 TodoBot started successfully!")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-if __name__ == "__main__":
-    main()
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
