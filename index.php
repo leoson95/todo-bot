@@ -14,8 +14,7 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREME
 
 foreach (['state TEXT DEFAULT NULL', 'state_data TEXT DEFAULT NULL'] as $col) { try { $pdo->exec("ALTER TABLE users ADD COLUMN {$col}"); } catch (PDOException $e) {} }
 
-// API
-
+// API Functions
 function apiRequest($method, $payload) {
     global $BOT_TOKEN;
     $ch = curl_init("https://api.telegram.org/bot{$BOT_TOKEN}/{$method}");
@@ -57,12 +56,14 @@ function clearState($user_id, $pdo) {
     setState($user_id, null, null, $pdo);
 }
 
-// UI
+// ==================== UI (Improved) ====================
 
 function getMainKeyboard() {
     return ['inline_keyboard' => [
-        [['text' => '➕ افزودن کار', 'callback_data' => 'add_task']],
-        [['text' => '✅ انجام شده', 'callback_data' => 'mark_done_menu']]
+        [
+            ['text' => '➕ افزودن کار', 'callback_data' => 'add_task'],
+            ['text' => '✅ انجام شده', 'callback_data' => 'mark_done_menu']
+        ]
     ]];
 }
 
@@ -79,18 +80,23 @@ function formatTaskList($user_id, $pdo) {
     $tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($tasks)) {
-        return "📝 لیست کارهای شما خالی است.\n\nهر متنی بفرست تا به عنوان کار جدید اضافه شود.";
+        return "📝 <b>لیست کارهای شما خالی است</b>\n\nهر متنی بفرست تا به عنوان کار جدید اضافه شود.";
     }
 
     $text = "📋 <b>لیست کارهای شما</b>\n";
-    $current = null;
-    foreach ($tasks as $t) {
-        if ($t['category'] != $current) {
-            $text .= "\n🗂 <b>{$t['category']}</b>\n";
-            $current = $t['category'];
+    $currentCategory = null;
+
+    foreach ($tasks as $task) {
+        if ($task['category'] !== $currentCategory) {
+            if ($currentCategory !== null) {
+                $text .= "\n";
+            }
+            $currentCategory = $task['category'];
+            $text .= "🗂 <b>{$currentCategory}</b>\n";
         }
-        $text .= "🔲 {$t['text']}\n";
+        $text .= "🔲 {$task['text']}\n";
     }
+
     return $text;
 }
 
@@ -102,9 +108,9 @@ function buildMarkDoneKeyboard($user_id, $pdo) {
     if (empty($tasks)) return null;
 
     $rows = [];
-    foreach ($tasks as $t) {
-        $label = "🔲 [{$t['category']}] " . mb_substr($t['text'], 0, 32);
-        $rows[] = [['text' => $label, 'callback_data' => 'done_' . $t['id']]];
+    foreach ($tasks as $task) {
+        $label = "🔲 [{$task['category']}] " . mb_substr($task['text'], 0, 32);
+        $rows[] = [['text' => $label, 'callback_data' => 'done_' . $task['id']]];
     }
     $rows[] = [['text' => '↩️ بازگشت', 'callback_data' => 'refresh']];
     return ['inline_keyboard' => $rows];
@@ -150,7 +156,7 @@ if (isset($update['message']['text'])) {
         echo 'OK'; exit;
     }
 
-    // Any text = Add new task
+    // Any text message = Add new task
     if ($isAuth) {
         setState($user_id, 'waiting_task_category', $text, $pdo);
         sendMessage($chat_id, "📂 دسته را انتخاب کن:", getCategoryKeyboard());
@@ -168,9 +174,9 @@ if (isset($update['callback_query'])) {
     if (!$isAuth) { echo 'OK'; exit; }
 
     if (str_starts_with($data, 'cat_')) {
-        $cat = substr($data, 4);
+        $category = substr($data, 4);
         if ($state === 'waiting_task_category' && $sData) {
-            $pdo->prepare("INSERT INTO tasks (user_id, category, text) VALUES (?,?,?)")->execute([$user_id, $cat, $sData]);
+            $pdo->prepare("INSERT INTO tasks (user_id, category, text) VALUES (?,?,?)")->execute([$user_id, $category, $sData]);
             clearState($user_id, $pdo);
             editMessage($chat_id, $msg_id, formatTaskList($user_id, $pdo), getMainKeyboard());
         }
@@ -179,7 +185,7 @@ if (isset($update['callback_query'])) {
     if ($data === 'mark_done_menu') {
         $keyboard = buildMarkDoneKeyboard($user_id, $pdo);
         if (!$keyboard) {
-            editMessage($chat_id, $msg_id, "✅ هیچ کاری باقی نمانده است!", getMainKeyboard());
+            editMessage($chat_id, $msg_id, "✅ هیچ کاری برای انجام باقی نمانده است!", getMainKeyboard());
         } else {
             editMessage($chat_id, $msg_id, "✅ کدام کار را انجام دادی؟", $keyboard);
         }
