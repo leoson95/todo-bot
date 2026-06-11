@@ -1,13 +1,12 @@
 import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, JobQueue
-from config import BOT_PASSWORD, MORNING_REMINDER_HOUR, MORNING_REMINDER_MINUTE
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from config import BOT_PASSWORD
 from database import (
     init_db, authenticate_user, is_user_authenticated,
     add_task, get_user_tasks, mark_task_done, delete_task, get_task_by_id
 )
-from reminders import schedule_reminders
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,8 +18,6 @@ CATEGORIES = [
     "خریدای سالن",
     "کارای من"
 ]
-
-# ... (previous helper functions remain the same)
 
 def get_main_keyboard():
     keyboard = [
@@ -50,8 +47,6 @@ def format_task_list(user_id):
     
     return text
 
-# ==================== HANDLERS ====================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
@@ -61,8 +56,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     context.user_data['waiting_for_password'] = True
-    await update.message.reply_text(
-        "🔐 برای استفاده از ربات، لطفاً رمز عبور را وارد کن:")
+    await update.message.reply_text("🔐 برای استفاده از ربات، لطفاً رمز عبور را وارد کن:")
 
 async def password_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('waiting_for_password'):
@@ -95,10 +89,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = []
         for task in tasks:
-            keyboard.append([InlineKeyboardButton(
-                f"🔲 {task['text'][:40]}", 
-                callback_data=f"confirm_done_{task['id']}"
-            )])
+            keyboard.append([InlineKeyboardButton(f"🔲 {task['text'][:40]}", callback_data=f"confirm_done_{task['id']}")])
         keyboard.append([InlineKeyboardButton("➠ بازگشت", callback_data="back_to_main")])
         
         await query.edit_message_text("کدام کار را انجام شده می‌دانی؟", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -143,16 +134,12 @@ async def main():
     
     application = Application.builder().token(token).build()
     
-    # Schedule reminders
-    schedule_reminders(application)
-    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     
-    logger.info("🚀 TodoBot started successfully with reminders!")
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("🚀 TodoBot started successfully!")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
