@@ -85,7 +85,7 @@ function renderMainList($chat_id, $db) {
             $categories[$task['category']][] = $task;
         }
     }
-    $textOutput = "👑 <b>بایگانی کارهای هوشمند شما</b>\n";
+    $textOutput = "📋 <b>لیست کار ها و خرید ها</b>\n";
     $textOutput .= "━━━━━━━━━━━━━━━━━━━━━\n\n";
     $hasTasks = false;
     foreach ($categories as $catName => $catTasks) {
@@ -105,7 +105,6 @@ function renderMainList($chat_id, $db) {
         $textOutput .= "🕊️ <i>در حال حاضر هیچ کاری در لیست شما وجود ندارد!</i>\n\n";
         $textOutput .= "━━━━━━━━━━━━━━━━━━━━━\n\n";
     }
-    $textOutput .= "💡 <b>راهنما:</b> برای افزودن کار جدید، کافیست متن آن را بنویسید.\n";
     $keyboard = [[['text' => "⚡ مدیریت و اتمام کارها", 'callback_data' => "manage_start"]]];
     return ['text' => $textOutput, 'keyboard' => $keyboard];
 }
@@ -141,11 +140,9 @@ if (!$is_callback) {
         updateMainMessage($chat_id, $db, ['main_message_id' => $session['main_message_id']]);
     } else {
         if ($session['state'] === 'AWAITING_REM_TIME') {
-            // کاربر ساعت یادآوری را فرستاده است
             if (preg_match('/^([0-1][0-9]|2[0-3]):([0-5][0-9])$/', $text)) {
                 $data = json_decode($session['temp_text'], true);
                
-                // محاسبه اولین زمان اجرا
                 $targetTarget = date('Y-m-d') . ' ' . $text;
                 if (strtotime($targetTarget) < time()) {
                     $targetTarget = date('Y-m-d', strtotime('+1 day')) . ' ' . $text;
@@ -159,7 +156,6 @@ if (!$is_callback) {
                
                 updateMainMessage($chat_id, $db, $session);
             } else {
-                // خطای فرمت ساعت
                 apiRequest('editMessageText', [
                     'chat_id' => $chat_id,
                     'message_id' => $session['temp_message_id'],
@@ -168,7 +164,6 @@ if (!$is_callback) {
                 ]);
             }
         } else {
-            // فرآیند شروع افزودن تسک جدید
             deleteMessage($chat_id, $session['temp_message_id']);
            
             $catKeyboard = [
@@ -193,8 +188,6 @@ if (!$is_callback) {
         }
     }
 } else {
-    // --- دکمه‌های شیشه‌ای ---
-   
     if (strpos($callback_data, 'addcat_') === 0) {
         $category = str_replace('addcat_', '', $callback_data);
         $data = json_decode($session['temp_text'], true);
@@ -202,7 +195,6 @@ if (!$is_callback) {
        
         $db->prepare("UPDATE user_session SET temp_text = ? WHERE chat_id = ?")->execute([json_encode($data), $chat_id]);
        
-        // منوی سوال درباره نیاز به یادآوری
         $remKeyboard = [
             'inline_keyboard' => [
                 [['text' => "🔔 بله، تنظیم یادآوری", 'callback_data' => "wants_rem_yes"]],
@@ -228,7 +220,6 @@ if (!$is_callback) {
         apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "کار بدون یادآوری اضافه شد."]);
        
     } elseif ($callback_data === 'wants_rem_yes') {
-        // منوی انتخاب دوره تکرار
         $intervalKeyboard = [
             'inline_keyboard' => [
                 [['text' => "🔄 هر روز", 'callback_data' => "setint_1"], ['text' => "🔄 یک روز در میان", 'callback_data' => "setint_2"]],
@@ -258,7 +249,6 @@ if (!$is_callback) {
             'parse_mode' => 'HTML'
         ]);
         apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id]);
-    // --- دکمه‌های پیام سیستم یادآوری (Cron Job) ---
     } elseif (strpos($callback_data, 'cron_done_') === 0) {
         $task_id = str_replace('cron_done_', '', $callback_data);
        
@@ -268,10 +258,8 @@ if (!$is_callback) {
        
         if ($task) {
             if ($task['repeat_days'] == 0) {
-                // اگر تکرار شونده نباشد کاملا حذف می‌شود
                 $db->prepare("DELETE FROM tasks WHERE id = ?")->execute([$task_id]);
             }
-            // اگر تکرار شونده باشد، کرون جاب قبلاً زمان بعدی را ست کرده، پس نیازی به حذف تسک نیست
         }
        
         deleteMessage($chat_id, $message_id);
@@ -279,10 +267,8 @@ if (!$is_callback) {
         apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "انجام شد! منو پاکسازی شد."]);
        
     } elseif (strpos($callback_data, 'cron_seen_') === 0) {
-        // دکمه دیدم: فقط پیام نوتیفیکیشن موقت را حذف میکند، تسک در لیست اصلی میماند
         deleteMessage($chat_id, $message_id);
         apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "تایید شد. تسک در لیست باقی ماند."]);
-    // --- سایر دکمه‌های مدیریت که قبلا نوشته شده بود ---
     } elseif ($callback_data === 'manage_start') {
         deleteMessage($chat_id, $session['temp_message_id']);
         $manageKeyboard = [
