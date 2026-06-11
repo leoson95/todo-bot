@@ -1,6 +1,5 @@
-__pycache__/
-*.py[cod]
-.env
+todo_bot.db
 *.db
-*.sqlite3
-.venv/
+temp_*.txt
+vendor/
+.env
