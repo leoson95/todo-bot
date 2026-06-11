@@ -2,13 +2,15 @@ import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-from config import BOT_PASSWORD
-from database import init_db, add_task, get_user_tasks, mark_task_done
+from config import BOT_PASSWORD, MORNING_REMINDER_HOUR, MORNING_REMINDER_MINUTE
+from database import (
+    init_db, authenticate_user, is_user_authenticated,
+    add_task, get_user_tasks, mark_task_done, delete_task, get_task_by_id
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Categories
 CATEGORIES = [
     "کارای سالن",
     "خریدای خونه",
@@ -17,83 +19,139 @@ CATEGORIES = [
     "کارای من"
 ]
 
+# ==================== HELPER FUNCTIONS ====================
+
+def get_main_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("➕ افزودن کار جدید", callback_data="add_task")],
+        [InlineKeyboardButton("✅ علامت زدن انجام شده", callback_data="mark_done_menu")],
+        [InlineKeyboardButton("🔄 به‌روزرسانی لیست", callback_data="refresh")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def format_task_list(user_id):
+    tasks = get_user_tasks(user_id)
+    if not tasks:
+        return "📝 لیست کارهای شما خالی است.\n\nبا دکمه پایین کار جدید اضافه کن."
+    
+    text = "📝 لیست کارهای شما\n\n"
+    current_category = None
+    
+    for task in tasks:
+        if task['category'] != current_category:
+            if current_category is not None:
+                text += "\n"
+            current_category = task['category']
+            text += f"🗂 {current_category}\n"
+        
+        status = "✅" if task['done'] else "🔲"
+        text += f"{status} {task['text']}\n"
+    
+    return text
+
+# ==================== HANDLERS ====================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # Simple password check (we will improve this)
-    if context.user_data.get('authenticated'):
-        await show_main_menu(update, context)
+    if is_user_authenticated(user_id):
+        text = format_task_list(user_id)
+        await update.message.reply_text(text, reply_markup=get_main_keyboard())
         return
     
+    context.user_data['waiting_for_password'] = True
     await update.message.reply_text(
-        "🔐 برای استفاده از ربات، لطفاً رمز عبور را وارد کن:",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔑 ورود رمز", callback_data="enter_password")
-        ]])
-    )
+        "🔐 برای استفاده از ربات، لطفاً رمز عبور را وارد کن:")
 
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    tasks = get_user_tasks(user_id)
-    
-    text = "📝 لیست کارهای شما\n\n"
-    
-    for category in CATEGORIES:
-        text += f"🗂 {category}\n"
-        category_tasks = [t for t in tasks if t['category'] == category]
-        if category_tasks:
-            for task in category_tasks:
-                text += f"🔲 {task['text']}\n"
+async def password_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('waiting_for_password'):
+        if update.message.text == BOT_PASSWORD:
+            user_id = update.effective_user.id
+            authenticate_user(user_id)
+            context.user_data['authenticated'] = True
+            context.user_data['waiting_for_password'] = False
+            
+            text = format_task_list(user_id)
+            await update.message.reply_text("✅ رمز صحیح بود. خوش آمدی!")
+            await update.message.reply_text(text, reply_markup=get_main_keyboard())
         else:
-            text += "🔲 ( خالی )\n"
-        text += "\n"
-    
-    keyboard = [
-        [InlineKeyboardButton("➕ افزودن کار جدید", callback_data="add_task")],
-        [InlineKeyboardButton("✅ علامت زدن انجام‌شده", callback_data="mark_done")],
-        [InlineKeyboardButton("🔄 به‌روزرسانی لیست", callback_data="refresh")]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(text, reply_markup=reply_markup)
+            await update.message.reply_text("❌ رمز اشتباه است. مجدداً تلاش کن.")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
     
     if query.data == "add_task":
+        context.user_data['waiting_for_task_text'] = True
         await query.edit_message_text("لطفاً متن کار را بنویس:")
-        context.user_data['waiting_for_task'] = True
+    
+    elif query.data == "mark_done_menu":
+        tasks = get_user_tasks(user_id)
+        if not tasks:
+            await query.edit_message_text("هیچ کاری برای انجام وجود ندارد.", reply_markup=get_main_keyboard())
+            return
+        
+        keyboard = []
+        for task in tasks:
+            keyboard.append([InlineKeyboardButton(
+                f"🔲 {task['text'][:40]}", 
+                callback_data=f"confirm_done_{task['id']}"
+            )])
+        keyboard.append([InlineKeyboardButton("➠ بازگشت", callback_data="back_to_main")])
+        
+        await query.edit_message_text("کدام کار را انجام شده می‌دانی؟", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    elif query.data.startswith("confirm_done_"):
+        task_id = int(query.data.split("_")[2])
+        mark_task_done(task_id)
+        text = format_task_list(user_id)
+        await query.edit_message_text(text, reply_markup=get_main_keyboard())
+    
     elif query.data == "refresh":
-        await show_main_menu(update, context)
-    # We will expand other buttons later
+        text = format_task_list(user_id)
+        await query.edit_message_text(text, reply_markup=get_main_keyboard())
+    
+    elif query.data == "back_to_main":
+        text = format_task_list(user_id)
+        await query.edit_message_text(text, reply_markup=get_main_keyboard())
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('waiting_for_task'):
-        # Simple add task for now
-        user_id = update.effective_user.id
-        text = update.message.text
-        # For now, add to first category
-        add_task(user_id, CATEGORIES[0], text)
-        context.user_data['waiting_for_task'] = False
-        await update.message.reply_text("✅ کار اضافه شد.")
-        await show_main_menu(update, context)
+    user_id = update.effective_user.id
+    
+    if context.user_data.get('waiting_for_password'):
+        await password_handler(update, context)
+        return
+    
+    if context.user_data.get('waiting_for_task_text'):
+        context.user_data['task_text'] = update.message.text
+        context.user_data['waiting_for_task_text'] = False
+        context.user_data['waiting_for_category'] = True
+        
+        keyboard = [[InlineKeyboardButton(cat, callback_data=f"category_{cat}")] for cat in CATEGORIES]
+        await update.message.reply_text("کار را به کدام دسته اضافه کنی؟", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+    
+    if context.user_data.get('waiting_for_category'):
+        # This is handled in button_handler
+        pass
 
 async def main():
     init_db()
     
-    application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        logger.error("TELEGRAM_BOT_TOKEN not found!")
+        return
+    
+    application = Application.builder().token(token).build()
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     
-    logger.info("Bot started...")
-    await application.run_polling()
+    logger.info("🚀 TodoBot started successfully!")
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     import asyncio
