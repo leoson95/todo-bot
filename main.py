@@ -1,15 +1,18 @@
 import os
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from flask import Flask, request
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from config import BOT_PASSWORD
-from database import (
-    init_db, authenticate_user, is_user_authenticated,
-    add_task, get_user_tasks, mark_task_done, delete_task, get_task_by_id
-)
+from database import init_db, authenticate_user, is_user_authenticated, add_task, get_user_tasks, mark_task_done, delete_task
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+
+application = Application.builder().token(TOKEN).build()
 
 CATEGORIES = [
     "کارای سالن",
@@ -124,19 +127,23 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("کار را به کدام دسته اضافه کنی؟", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
+@app.route("/")
+def index():
+    return "✅ TodoBot is running on Railway!"
+
+@app.route("/webhook", methods=["POST"])
+async def webhook():
+    try:
+        json_data = request.get_json(force=True)
+        update = Update.de_json(json_data, application.bot)
+        await application.process_update(update)
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return "Error", 500
+
 if __name__ == "__main__":
     init_db()
-    
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        logger.error("TELEGRAM_BOT_TOKEN not found!")
-        exit(1)
-    
-    application = Application.builder().token(token).build()
-    
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-    
-    logger.info("🚀 TodoBot started successfully!")
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    port = int(os.environ.get("PORT", 8080))
+    logger.info(f"🚀 Starting bot on port {port}")
+    app.run(host="0.0.0.0", port=port)
