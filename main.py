@@ -1,12 +1,13 @@
 import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, JobQueue
 from config import BOT_PASSWORD, MORNING_REMINDER_HOUR, MORNING_REMINDER_MINUTE
 from database import (
     init_db, authenticate_user, is_user_authenticated,
     add_task, get_user_tasks, mark_task_done, delete_task, get_task_by_id
 )
+from reminders import schedule_reminders
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ CATEGORIES = [
     "کارای من"
 ]
 
-# ==================== HELPER FUNCTIONS ====================
+# ... (previous helper functions remain the same)
 
 def get_main_keyboard():
     keyboard = [
@@ -131,10 +132,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton(cat, callback_data=f"category_{cat}")] for cat in CATEGORIES]
         await update.message.reply_text("کار را به کدام دسته اضافه کنی؟", reply_markup=InlineKeyboardMarkup(keyboard))
         return
-    
-    if context.user_data.get('waiting_for_category'):
-        # This is handled in button_handler
-        pass
 
 async def main():
     init_db()
@@ -146,11 +143,14 @@ async def main():
     
     application = Application.builder().token(token).build()
     
+    # Schedule reminders
+    schedule_reminders(application)
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     
-    logger.info("🚀 TodoBot started successfully!")
+    logger.info("🚀 TodoBot started successfully with reminders!")
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
