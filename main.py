@@ -2,7 +2,7 @@ import os
 import logging
 import asyncio
 from flask import Flask, request
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from config import BOT_PASSWORD
 from database import init_db, authenticate_user, is_user_authenticated, add_task, get_user_tasks, mark_task_done, delete_task
@@ -74,7 +74,7 @@ async def password_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ رمز صحیح بود. خوش آمدی!")
             await update.message.reply_text(text, reply_markup=get_main_keyboard())
         else:
-            await update.message.reply_text("❌ رمز اشتباه است. مجدحداً تلاش کن.")
+            await update.message.reply_text("❌ رمز اشتباه است. مجدداً تلاش کن.")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -84,6 +84,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "add_task":
         context.user_data['waiting_for_task_text'] = True
         await query.edit_message_text("لطفاً متن کار را بنویس:")
+    
+    elif query.data.startswith("category_"):
+        category = query.data.replace("category_", "")
+        task_text = context.user_data.get('task_text')
+        if task_text:
+            add_task(user_id, category, task_text)
+            context.user_data['task_text'] = None
+            context.user_data['waiting_for_category'] = False
+            text = format_task_list(user_id)
+            await query.edit_message_text(text, reply_markup=get_main_keyboard())
+        else:
+            await query.edit_message_text("خطا! متن کار پیدا نشد. مجدداً امتحان کن.", reply_markup=get_main_keyboard())
     
     elif query.data == "mark_done_menu":
         tasks = get_user_tasks(user_id)
@@ -152,7 +164,6 @@ if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 8080))
     
-    # Initialize the Application before starting Flask
     asyncio.run(initialize_bot())
     
     logger.info(f"🚀 Starting bot on port {port}")
