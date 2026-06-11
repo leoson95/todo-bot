@@ -1,15 +1,12 @@
 <?php
-
 // تنظیمات توکن ربات
-$botToken = "8986995462:AAHYYyD61BFTZSzlPTQF4ksmvQsnt9FePtQ"; 
+$botToken = "8986995462:AAHYYyD61BFTZSzlPTQF4ksmvQsnt9FePtQ";
 $apiUrl = "https://api.telegram.org/bot" . $botToken;
-
 // ۱. اتصال به دیتابیس SQLite در مسیر هارد دائمی Railway
 try {
     $db = new PDO('sqlite:/app/data/todo.db');
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    
-    // ساخت جدول کارها
+   
     $db->exec("CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id TEXT,
@@ -17,8 +14,7 @@ try {
         category TEXT,
         is_done INTEGER DEFAULT 0
     )");
-    
-    // ساخت جدول مدیریت سشن‌ها و پیام اصلی
+   
     $db->exec("CREATE TABLE IF NOT EXISTS user_session (
         chat_id TEXT PRIMARY KEY,
         main_message_id INTEGER,
@@ -30,17 +26,13 @@ try {
     error_log("Database error: " . $e->getMessage());
     exit;
 }
-
 // ۲. دریافت اطلاعات از وب‌هوک تلگرام
 $content = file_get_contents("php://input");
 $update = json_decode($content, true);
-
 if (!$update) exit;
-
 $chat_id = null;
 $message_id = null;
 $is_callback = false;
-
 if (isset($update['message'])) {
     $chat_id = $update['message']['chat']['id'];
     $message_id = $update['message']['message_id'];
@@ -52,21 +44,16 @@ if (isset($update['message'])) {
     $callback_data = $update['callback_query']['data'];
     $callback_query_id = $update['callback_query']['id'];
 }
-
 if (!$chat_id) exit;
-
 // دریافت یا ایجاد سشن کاربر
 $stmt = $db->prepare("SELECT * FROM user_session WHERE chat_id = ?");
 $stmt->execute([$chat_id]);
 $session = $stmt->fetch(PDO::FETCH_ASSOC);
-
 if (!$session) {
     $db->prepare("INSERT INTO user_session (chat_id, main_message_id, temp_message_id, state, temp_text) VALUES (?, NULL, NULL, NULL, NULL)")->execute([$chat_id]);
     $session = ['chat_id' => $chat_id, 'main_message_id' => null, 'temp_message_id' => null, 'state' => null, 'temp_text' => null];
 }
-
-// --- توابع کمکی ربات ---
-
+// --- توابع کمکی ---
 function apiRequest($method, $parameters) {
     global $apiUrl;
     $ch = curl_init();
@@ -79,18 +66,14 @@ function apiRequest($method, $parameters) {
     curl_close($ch);
     return json_decode($response, true);
 }
-
 function deleteMessage($chat_id, $msg_id) {
     if ($msg_id) apiRequest('deleteMessage', ['chat_id' => $chat_id, 'message_id' => $msg_id]);
 }
-
-// رندر کردن پوسته گرافیکی و لوکس لیست کارها
+// رندر پوسته گرافیکی، عریض و بسیار خوانای لیست
 function renderMainList($chat_id, $db) {
     $stmt = $db->prepare("SELECT * FROM tasks WHERE chat_id = ? AND is_done = 0");
     $stmt->execute([$chat_id]);
     $tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // دسته‌بندی‌ها
     $categories = [
         '🔴 فوری' => [],
         '💻 کاری' => [],
@@ -98,47 +81,37 @@ function renderMainList($chat_id, $db) {
         '🛍️ خرید' => [],
         '💅 زیبایی' => []
     ];
-
     foreach ($tasks as $task) {
         if (array_key_exists($task['category'], $categories)) {
             $categories[$task['category']][] = $task;
         }
     }
-
-    $textOutput = "👑 <b>لیست کارهای هوشمند شما</b>\n";
-    $textOutput .= "───────────────────\n\n";
-
+    $textOutput = "👑 <b>بایگانی کارهای هوشمند شما</b>\n";
+    $textOutput .= "━━━━━━━━━━━━━━━━━━━━━\n\n";
     $hasTasks = false;
-    $keyboardButtons = [];
-
     foreach ($categories as $catName => $catTasks) {
         $count = count($catTasks);
         if ($count > 0) {
             $hasTasks = true;
-            $textOutput .= "📂 <b>" . $catName . "</b> (" . $count . " کار)\n";
-            foreach ($catTasks as $index => $t) {
-                $isLast = ($index === $count - 1);
-                $prefix = $isLast ? "└─ " : "├─ ";
-                $textOutput .= $prefix . "📝 " . htmlspecialchars($t['text']) . "\n";
-                
-                // ایجاد دکمه شیشه‌ای برای حذف/اتمام هر کار
-                $keyboardButtons[] = [['text' => "✅ اتمام: " . $t['text'], 'callback_data' => "done_" . $t['id']]];
+            $textOutput .= "📂 <b>" . $catName . "</b> 🏷️ [ " . $count . " کار ]\n";
+            $textOutput .= "─────────────────────\n";
+           
+            foreach ($catTasks as $t) {
+                $textOutput .= "🔹 " . htmlspecialchars($t['text']) . "\n";
             }
-            $textOutput .= "\n";
+            // ایجاد فضای تنفس بصری بین دسته‌بندی‌ها
+            $textOutput .= "━━━━━━━━━━━━━━━━━━━━━\n\n";
         }
     }
-
     if (!$hasTasks) {
-        $textOutput .= "🕊️ <i>لیست کارهای شما خالی است!</i>\n\n";
+        $textOutput .= "🕊️ <i>در حال حاضر هیچ کاری در لیست شما وجود ندارد!</i>\n\n";
+        $textOutput .= "━━━━━━━━━━━━━━━━━━━━━\n\n";
     }
-
-    $textOutput .= "───────────────────\n";
-    $textOutput .= "💡 <b>راهنما:</b> برای اضافه کردن کار جدید، کافیست متن آن را در چت بنویسید و ارسال کنید.\n";
-
-    return ['text' => $textOutput, 'keyboard' => $keyboardButtons];
+    $textOutput .= "💡 <b>راهنما:</b> برای افزودن کار جدید، کافیست متن آن را بنویسید و ارسال کنید.\n";
+    // فقط و فقط یک دکمه ثابت زیر پیام اصلی قرار می‌گیرد
+    $keyboard = [[['text' => "⚡ مدیریت و اتمام کارها", 'callback_data' => "manage_start"]]];
+    return ['text' => $textOutput, 'keyboard' => $keyboard];
 }
-
-// مدیریت نمایش یا ویرایش پیام اصلی لیست
 function updateMainMessage($chat_id, $db, $session) {
     $listData = renderMainList($chat_id, $db);
     $params = [
@@ -147,17 +120,12 @@ function updateMainMessage($chat_id, $db, $session) {
         'parse_mode' => 'HTML',
         'reply_markup' => ['inline_keyboard' => $listData['keyboard']]
     ];
-
     $success = false;
     if ($session['main_message_id']) {
         $params['message_id'] = $session['main_message_id'];
         $res = apiRequest('editMessageText', $params);
-        if ($res && $res['ok']) {
-            $success = true;
-        }
+        if ($res && $res['ok']) $success = true;
     }
-
-    // اگر پیام اصلی وجود نداشت یا توسط کاربر پاک شده بود، پیام جدید می‌فرستیم
     if (!$success) {
         unset($params['message_id']);
         $res = apiRequest('sendMessage', $params);
@@ -167,86 +135,154 @@ function updateMainMessage($chat_id, $db, $session) {
         }
     }
 }
-
-// --- پردازش درخواست‌ها ---
-
+// --- پردازش پیام‌ها و دستورات ---
 if (!$is_callback) {
-    // حذف پیام ارسالی کاربر برای تمیز ماندن چت
+    // حذف پیام متنی کاربر برای تمیز ماندن چت
     deleteMessage($chat_id, $message_id);
-
     if ($text === '/start') {
-        // بازنشانی سشن و نمایش لیست اصلی
         $db->prepare("UPDATE user_session SET state = NULL, temp_text = NULL WHERE chat_id = ?")->execute([$chat_id]);
-        // حذف پیام موقت قبلی در صورت وجود
         deleteMessage($chat_id, $session['temp_message_id']);
-        
+       
         $session['state'] = null;
         $session['temp_message_id'] = null;
         updateMainMessage($chat_id, $db, $session);
     } else {
-        // کاربر متنی فرستاده که به عنوان کار جدید در نظر گرفته می‌شود
-        deleteMessage($chat_id, $session['temp_message_id']); // حذف پیام موقت قبلی
-        
-        // نمایش منوی انتخاب دسته‌بندی (پیام موقت)
+        // فرآیند افزودن کار جدید (پاک کردن منوی موقت قبلی در صورت وجود)
+        deleteMessage($chat_id, $session['temp_message_id']);
+       
         $catKeyboard = [
             'inline_keyboard' => [
-                [['text' => "🔴 فوری", 'callback_data' => "cat_🔴 فوری"], ['text' => "💻 کاری", 'callback_data' => "cat_💻 کاری"]],
-                [['text' => "🏠 شخصی", 'callback_data' => "cat_🏠 شخصی"], ['text' => "🛍️ خرید", 'callback_data' => "cat_🛍️ خرید"]],
-                [['text' => "💅 زیبایی", 'callback_data' => "cat_💅 زیبایی"]],
-                [['text' => "❌ انصراف", 'callback_data' => "cancel"]]
+                [['text' => "🔴 فوری", 'callback_data' => "addcat_🔴 فوری"], ['text' => "💻 کاری", 'callback_data' => "addcat_💻 کاری"]],
+                [['text' => "🏠 شخصی", 'callback_data' => "addcat_🏠 شخصی"], ['text' => "🛍️ خرید", 'callback_data' => "addcat_🛍️ خرید"]],
+                [['text' => "💅 زیبایی", 'callback_data' => "addcat_💅 زیبایی"]],
+                [['text' => "❌ انصراف", 'callback_data' => "cancel_temp"]]
             ]
         ];
-        
+       
         $tempRes = apiRequest('sendMessage', [
             'chat_id' => $chat_id,
-            'text' => "🗂 <b>انتخاب دسته‌بندی برای کار جدید:</b>\n« " . htmlspecialchars($text) . " »",
+            'text' => "🗂️ <b>انتخاب دسته‌بندی برای کار جدید:</b>\n« <i>" . htmlspecialchars($text) . "</i> »",
             'parse_mode' => 'HTML',
             'reply_markup' => $catKeyboard
         ]);
-        
+       
         $temp_msg_id = $tempRes['ok'] ? $tempRes['result']['message_id'] : null;
-        
-        $db->prepare("UPDATE user_session SET state = 'AWAITING_CAT', temp_text = ?, temp_message_id = ? WHERE chat_id = ?")
+        $db->prepare("UPDATE user_session SET state = 'AWAITING_ADD_CAT', temp_text = ?, temp_message_id = ? WHERE chat_id = ?")
            ->execute([$text, $temp_msg_id, $chat_id]);
     }
 } else {
-    // پردازش دکمه‌های شیشه‌ای (Callback Queries)
-    
-    if (strpos($callback_data, 'cat_') === 0) {
-        $category = str_replace('cat_', '', $callback_data);
-        
-        if ($session['state'] === 'AWAITING_CAT' && !empty($session['temp_text'])) {
-            // ذخیره کار در دیتابیس
-            $stmt = $db->prepare("INSERT INTO tasks (chat_id, text, category) VALUES (?, ?, ?)");
-            $stmt->execute([$chat_id, $session['temp_text'], $category]);
+    // --- پردازش دکمه‌های شیشه‌ای ---
+   
+    // ۱. افزودن کار: انتخاب دسته‌بندی نهایی
+    if (strpos($callback_data, 'addcat_') === 0) {
+        $category = str_replace('addcat_', '', $callback_data);
+        if ($session['state'] === 'AWAITING_ADD_CAT' && !empty($session['temp_text'])) {
+            $db->prepare("INSERT INTO tasks (chat_id, text, category) VALUES (?, ?, ?)")->execute([$chat_id, $session['temp_text'], $category]);
         }
-        
-        // پاکسازی سشن و حذف پیام موقت انتخاب دسته
+       
         $db->prepare("UPDATE user_session SET state = NULL, temp_text = NULL, temp_message_id = NULL WHERE chat_id = ?")->execute([$chat_id]);
         deleteMessage($chat_id, $message_id);
-        
-        // به‌روزرسانی پیام اصلی لیست
-        $session['state'] = null;
-        $session['temp_message_id'] = null;
+       
+        $session['state'] = null; $session['temp_message_id'] = null;
         updateMainMessage($chat_id, $db, $session);
-        apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "کار با موفقیت اضافه شد."]);
-        
-    } elseif (strpos($callback_data, 'done_') === 0) {
-        $task_id = str_replace('done_', '', $callback_data);
-        
-        // حذف یا اتمام کار از دیتابیس
-        $stmt = $db->prepare("DELETE FROM tasks WHERE id = ? AND chat_id = ?");
-        $stmt->execute([$task_id, $chat_id]);
-        
-        // به‌روزرسانی پیام اصلی لیست
+        apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "کار اضافه شد."]);
+       
+    // ۲. شروع فرآیند مدیریت و حذف کارها
+    } elseif ($callback_data === 'manage_start') {
+        deleteMessage($chat_id, $session['temp_message_id']);
+       
+        $manageKeyboard = [
+            'inline_keyboard' => [
+                [['text' => "🔴 فوری", 'callback_data' => "mget_🔴 فوری"], ['text' => "💻 کاری", 'callback_data' => "mget_💻 کاری"]],
+                [['text' => "🏠 شخصی", 'callback_data' => "mget_🏠 شخصی"], ['text' => "🛍️ خرید", 'callback_data' => "mget_🛍️ خرید"]],
+                [['text' => "💅 سالن", 'callback_data' => "mget_💅 سالن"]],
+                [['text' => "❌ بستن پنل", 'callback_data' => "cancel_temp"]]
+            ]
+        ];
+       
+        $tempRes = apiRequest('sendMessage', [
+            'chat_id' => $chat_id,
+            'text' => "🛠️ <b>منوی مدیریت | ابتدا دسته‌بندی مورد نظر را انتخاب کنید:</b>",
+            'parse_mode' => 'HTML',
+            'reply_markup' => $manageKeyboard
+        ]);
+       
+        $temp_msg_id = $tempRes['ok'] ? $tempRes['result']['message_id'] : null;
+        $db->prepare("UPDATE user_session SET state = 'MANAGE_SELECT_CAT', temp_message_id = ? WHERE chat_id = ?")->execute([$temp_msg_id, $chat_id]);
+    // ۳. نمایش لیست کارها درون دسته انتخاب شده جهت حذف
+    } elseif (strpos($callback_data, 'mget_') === 0) {
+        $category = str_replace('mget_', '', $callback_data);
+       
+        $stmt = $db->prepare("SELECT * FROM tasks WHERE chat_id = ? AND category = ? AND is_done = 0");
+        $stmt->execute([$chat_id, $category]);
+        $catTasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+       
+        $taskKeyboard = [];
+        if (count($catTasks) > 0) {
+            foreach ($catTasks as $t) {
+                // نمایش عنوان کار روی دکمه شیشه‌ای
+                $taskKeyboard[] = [['text' => "🗑️ " . $t['text'], 'callback_data' => "mdone_" . $t['id']]];
+            }
+        } else {
+            $taskKeyboard[] = [['text' => "موردی در این دسته وجود ندارد", 'callback_data' => "none"]];
+        }
+        // دکمه بازگشت به منوی قبلی مدیریت
+        $taskKeyboard[] = [['text' => "🔙 بازگشت", 'callback_data' => "manage_start"]];
+       
+        apiRequest('editMessageText', [
+            'chat_id' => $chat_id,
+            'message_id' => $message_id,
+            'text' => "📌 <b>حذف کار | روی کار مورد نظر کلیک کنید تا متوقف/حذف شود:</b>\n📂 دسته: <b>" . $category . "</b>",
+            'parse_mode' => 'HTML',
+            'reply_markup' => ['inline_keyboard' => $taskKeyboard]
+        ]);
+        $db->prepare("UPDATE user_session SET state = 'MANAGE_SELECT_TASK' WHERE chat_id = ?")->execute([$chat_id]);
+        apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id]);
+    // ۴. اتمام قطعی کار و حذف آن
+    } elseif (strpos($callback_data, 'mdone_') === 0) {
+        $task_id = str_replace('mdone_', '', $callback_data);
+       
+        // واکشی اطلاعات قبل حذف برای دریافت دسته بندی جهت بازسازی صفحه
+        $stmt = $db->prepare("SELECT category FROM tasks WHERE id = ?");
+        $stmt->execute([$task_id]);
+        $taskInfo = $stmt->fetch(PDO::FETCH_ASSOC);
+       
+        // حذف کار
+        $db->prepare("DELETE FROM tasks WHERE id = ? AND chat_id = ?")->execute([$task_id, $chat_id]);
+       
+        // به‌روزرسانی لیست اصلی چت
         updateMainMessage($chat_id, $db, $session);
-        apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "کار انجام شد و حذف گردید."]);
-        
-    } elseif ($callback_data === 'cancel') {
-        // انصراف از افزودن کار
+       
+        // rندر مجدد لیست دکمه‌ها جهت حذف کارهای باقی‌مانده در همان دسته
+        if ($taskInfo) {
+            $category = $taskInfo['category'];
+            $stmt = $db->prepare("SELECT * FROM tasks WHERE chat_id = ? AND category = ? AND is_done = 0");
+            $stmt->execute([$chat_id, $category]);
+            $catTasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+           
+            $taskKeyboard = [];
+            foreach ($catTasks as $t) {
+                $taskKeyboard[] = [['text' => "🗑️ " . $t['text'], 'callback_data' => "mdone_" . $t['id']]];
+            }
+            if (count($catTasks) == 0) {
+                $taskKeyboard[] = [['text' => "موردی در این دسته وجود ندارد", 'callback_data' => "none"]];
+            }
+            $taskKeyboard[] = [['text' => "🔙 بازگشت", 'callback_data' => "manage_start"]];
+           
+            apiRequest('editMessageText', [
+                'chat_id' => $chat_id,
+                'message_id' => $message_id,
+                'text' => "📌 <b>حذف کار | روی کار مورد نظر کلیک کنید تا متوقف/حذف شود:</b>\n📂 دسته: <b>" . $category . "</b>",
+                'parse_mode' => 'HTML',
+                'reply_markup' => ['inline_keyboard' => $taskKeyboard]
+            ]);
+        }
+       
+        apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "کار با موفقیت انجام و حذف شد."]);
+    // ۵. لغو یا بستن پنجره‌های موقت (انصراف)
+    } elseif ($callback_data === 'cancel_temp') {
         $db->prepare("UPDATE user_session SET state = NULL, temp_text = NULL, temp_message_id = NULL WHERE chat_id = ?")->execute([$chat_id]);
         deleteMessage($chat_id, $message_id);
-        
-        apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "عملیات لغو شد."]);
+        apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "منو بسته شد."]);
     }
 }
