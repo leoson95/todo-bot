@@ -2,14 +2,9 @@
 
 declare(strict_types=1);
 
-// ==================== CONFIG ====================
-$BOT_TOKEN  = getenv('TELEGRAM_BOT_TOKEN') ?: '';
-$BOT_PASSWORD = getenv('BOT_PASSWORD') ?: '12345';
-
-if (empty($BOT_TOKEN)) {
-    http_response_code(500);
-    die('Bot token not set');
-}
+// ==================== CONFIG (Hardcoded) ====================
+$BOT_TOKEN  = '8986995462:AAHYYyD61BFTZSzlPTQF4ksmvQsnt9FePtQ';
+$BOT_PASSWORD = '1374512';
 
 // ==================== DATABASE ====================
 $dbFile = __DIR__ . '/todo_bot.db';
@@ -32,9 +27,8 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS tasks (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )');
 
-// Migration: add state columns if upgrading from old schema
 foreach (['state TEXT DEFAULT NULL', 'state_data TEXT DEFAULT NULL'] as $col) {
-    try { $pdo->exec("ALTER TABLE users ADD COLUMN {$col}"); } catch (PDOException $e) { /* already exists */ }
+    try { $pdo->exec("ALTER TABLE users ADD COLUMN {$col}"); } catch (PDOException $e) {}
 }
 
 // ==================== TELEGRAM API ====================
@@ -73,10 +67,9 @@ function answerCallback(string $cb_id, string $text = ''): void
     apiRequest('answerCallbackQuery', ['callback_query_id' => $cb_id, 'text' => $text]);
 }
 
-// ==================== STATE (in DB, not file) ====================
+// ==================== STATE ====================
 function getUser(int $user_id, PDO $pdo): array
 {
-    // Upsert: ensure row exists
     $pdo->prepare("INSERT OR IGNORE INTO users (user_id) VALUES (?)")->execute([$user_id]);
     $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
     $stmt->execute([$user_id]);
@@ -94,7 +87,7 @@ function clearState(int $user_id, PDO $pdo): void
     setState($user_id, null, null, $pdo);
 }
 
-// ==================== UI HELPERS ====================
+// ==================== UI ====================
 function getMainKeyboard(): array
 {
     return ['inline_keyboard' => [
@@ -107,14 +100,8 @@ function getMainKeyboard(): array
 function getCategoryKeyboard(): array
 {
     return ['inline_keyboard' => [
-        [
-            ['text' => '💼 کاری',   'callback_data' => 'cat_کاری'],
-            ['text' => '🏠 خانه',  'callback_data' => 'cat_خانه'],
-        ],
-        [
-            ['text' => '🛒 خرید',  'callback_data' => 'cat_خرید'],
-            ['text' => '📚 شخصی', 'callback_data' => 'cat_شخصی'],
-        ],
+        [['text' => '💼 کاری',   'callback_data' => 'cat_کاری'], ['text' => '🏠 خانه',  'callback_data' => 'cat_خانه']],
+        [['text' => '🛒 خرید',  'callback_data' => 'cat_خرید'], ['text' => '📚 شخصی', 'callback_data' => 'cat_شخصی']],
         [['text' => '❌ انصراف', 'callback_data' => 'cancel']],
     ]];
 }
@@ -162,25 +149,20 @@ function buildMarkDoneKeyboard(int $user_id, PDO $pdo): array
 $update = json_decode(file_get_contents('php://input'), true);
 if (!$update) { echo 'OK'; exit; }
 
-$chat_id = $update['message']['chat']['id']
-        ?? $update['callback_query']['message']['chat']['id']
-        ?? null;
-$user_id = $update['message']['from']['id']
-        ?? $update['callback_query']['from']['id']
-        ?? null;
+$chat_id = $update['message']['chat']['id'] ?? $update['callback_query']['message']['chat']['id'] ?? null;
+$user_id = $update['message']['from']['id'] ?? $update['callback_query']['from']['id'] ?? null;
 
 if (!$chat_id || !$user_id) { echo 'OK'; exit; }
 
-$user   = getUser((int)$user_id, $pdo);   // guarantees row exists
+$user   = getUser((int)$user_id, $pdo);
 $isAuth = (bool)($user['is_authenticated'] ?? 0);
 $state  = $user['state']      ?? null;
 $sData  = $user['state_data'] ?? null;
 
-// ==================== MESSAGE HANDLER ====================
+// Message Handler
 if (isset($update['message']['text'])) {
     $text = trim($update['message']['text']);
 
-    // /start
     if ($text === '/start') {
         if ($isAuth) {
             clearState((int)$user_id, $pdo);
@@ -192,14 +174,12 @@ if (isset($update['message']['text'])) {
         echo 'OK'; exit;
     }
 
-    // Not authenticated: only accept password
     if (!$isAuth) {
         if ($state !== 'waiting_password') {
             setState((int)$user_id, 'waiting_password', null, $pdo);
         }
         if ($text === $BOT_PASSWORD) {
-            $pdo->prepare("UPDATE users SET is_authenticated = 1 WHERE user_id = ?")
-                ->execute([$user_id]);
+            $pdo->prepare("UPDATE users SET is_authenticated = 1 WHERE user_id = ?")->execute([$user_id]);
             clearState((int)$user_id, $pdo);
             sendMessage((int)$chat_id, "✅ رمز صحیح بود! خوش اومدی 👋");
             sendMessage((int)$chat_id, formatTaskList((int)$user_id, $pdo), getMainKeyboard());
@@ -209,18 +189,15 @@ if (isset($update['message']['text'])) {
         echo 'OK'; exit;
     }
 
-    // Authenticated — state machine
     if ($state === 'waiting_task_text') {
-        // Save text, ask for category
         setState((int)$user_id, 'waiting_task_category', $text, $pdo);
         sendMessage((int)$chat_id, "📂 دسته‌بندی را انتخاب کن:", getCategoryKeyboard());
     } else {
-        // Any other message → show list
         sendMessage((int)$chat_id, formatTaskList((int)$user_id, $pdo), getMainKeyboard());
     }
 }
 
-// ==================== CALLBACK HANDLER ====================
+// Callback Handler
 if (isset($update['callback_query'])) {
     $cb     = $update['callback_query'];
     $data   = $cb['data'];
@@ -230,28 +207,23 @@ if (isset($update['callback_query'])) {
 
     if (!$isAuth) { echo 'OK'; exit; }
 
-    // ── Add task (step 1) ──────────────────────────────────────
     if ($data === 'add_task') {
         setState((int)$user_id, 'waiting_task_text', null, $pdo);
         sendMessage((int)$chat_id, "✏️ متن کار جدید را بنویس:");
     }
 
-    // ── Category chosen (step 2) ───────────────────────────────
     elseif (str_starts_with($data, 'cat_')) {
         $category = substr($data, 4);
         if ($state === 'waiting_task_category' && !empty($sData)) {
-            $pdo->prepare("INSERT INTO tasks (user_id, category, text) VALUES (?,?,?)")
-                ->execute([$user_id, $category, $sData]);
+            $pdo->prepare("INSERT INTO tasks (user_id, category, text) VALUES (?,?,?)")->execute([$user_id, $category, $sData]);
             clearState((int)$user_id, $pdo);
             editMessage((int)$chat_id, (int)$msg_id, formatTaskList((int)$user_id, $pdo), getMainKeyboard());
         } else {
-            // State lost — recover gracefully
             clearState((int)$user_id, $pdo);
             editMessage((int)$chat_id, (int)$msg_id, "⚠️ خطا در ذخیره کار. دوباره امتحان کن.", getMainKeyboard());
         }
     }
 
-    // ── Mark-done menu ─────────────────────────────────────────
     elseif ($data === 'mark_done_menu') {
         $keyboard = buildMarkDoneKeyboard((int)$user_id, $pdo);
         if (empty($keyboard)) {
@@ -261,10 +233,8 @@ if (isset($update['callback_query'])) {
         }
     }
 
-    // ── Mark specific task done ────────────────────────────────
     elseif (str_starts_with($data, 'done_')) {
         $task_id = (int)substr($data, 5);
-        // Verify ownership before marking
         $stmt = $pdo->prepare("SELECT id FROM tasks WHERE id = ? AND user_id = ?");
         $stmt->execute([$task_id, $user_id]);
         if ($stmt->fetchColumn()) {
@@ -274,7 +244,6 @@ if (isset($update['callback_query'])) {
         editMessage((int)$chat_id, (int)$msg_id, formatTaskList((int)$user_id, $pdo), getMainKeyboard());
     }
 
-    // ── Refresh / Cancel ───────────────────────────────────────
     elseif ($data === 'refresh' || $data === 'cancel') {
         clearState((int)$user_id, $pdo);
         editMessage((int)$chat_id, (int)$msg_id, formatTaskList((int)$user_id, $pdo), getMainKeyboard());
