@@ -98,7 +98,7 @@ function renderMainList($chat_id, $db) {
                 $status = (!empty($t['next_trigger'])) ? " ⏰" : "";
                 $textOutput .= " ▫️ " . htmlspecialchars($t['text']) . $status . "\n";
             }
-            $textOutput .= "🔹 ━━━━━━━━━━━━ 🔹\n\n";
+            // حذف خط جداکننده 🔹 ━━━━━━━━━━━━ 🔹
         }
     }
     if (!$hasTasks) {
