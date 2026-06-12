@@ -96,7 +96,7 @@ function renderMainList($chat_id, $db) {
                 $status = (!empty($t['next_trigger'])) ? " ⏰" : "";
                 $textOutput .= "▫️ " . htmlspecialchars($t['text']) . $status . "\n";
             }
-            $textOutput .= "─────────────────────\n";
+            $textOutput .= "─────────────────────\n\n";
         }
     }
     if (!$hasTasks) {
