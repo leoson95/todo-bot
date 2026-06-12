@@ -91,7 +91,7 @@ function renderMainList($chat_id, $db) {
         $count = count($catTasks);
         if ($count > 0) {
             $hasTasks = true;
-            $textOutput .= "📂 <b>" . $catName . "</b> │ 📋 <code>" . $count . " کار</code>\n\n";
+            $textOutput .= "📂 <b>" . $catName . "</b> │ 📋 <code>" . $count . " کار</code>\n\n\n";
             foreach ($catTasks as $t) {
                 $status = (!empty($t['next_trigger'])) ? " ⏰" : "";
                 $textOutput .= "▫️ " . htmlspecialchars($t['text']) . $status . "\n";
