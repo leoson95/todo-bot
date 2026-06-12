@@ -17,7 +17,6 @@ try {
         repeat_days INTEGER DEFAULT 0
     )");
    
-    // ارتقای دیتابیس قدیمی در صورت وجود
     try { $db->exec("ALTER TABLE tasks ADD COLUMN next_trigger TEXT"); } catch(Exception $e){}
     try { $db->exec("ALTER TABLE tasks ADD COLUMN repeat_days INTEGER DEFAULT 0"); } catch(Exception $e){}
     $db->exec("CREATE TABLE IF NOT EXISTS user_session (
@@ -92,13 +91,12 @@ function renderMainList($chat_id, $db) {
         $count = count($catTasks);
         if ($count > 0) {
             $hasTasks = true;
-            $textOutput .= "📂 <b>" . $catName . "</b> │ 📋 <code>" . $count . " کار</code>\n";
-            $textOutput .= "─────────────────────\n";
+            $textOutput .= "📂 <b>" . $catName . "</b> │ 📋 <code>" . $count . " کار</code>\n\n";
             foreach ($catTasks as $t) {
                 $status = (!empty($t['next_trigger'])) ? " ⏰" : "";
-                $textOutput .= " ▫️ " . htmlspecialchars($t['text']) . $status . "\n";
+                $textOutput .= "▫️ " . htmlspecialchars($t['text']) . $status . "\n";
             }
-            // حذف خط جداکننده 🔹 ━━━━━━━━━━━━ 🔹
+            $textOutput .= "─────────────────────\n";
         }
     }
     if (!$hasTasks) {
@@ -142,18 +140,14 @@ if (!$is_callback) {
         if ($session['state'] === 'AWAITING_REM_TIME') {
             if (preg_match('/^([0-1][0-9]|2[0-3]):([0-5][0-9])$/', $text)) {
                 $data = json_decode($session['temp_text'], true);
-               
                 $targetTarget = date('Y-m-d') . ' ' . $text;
                 if (strtotime($targetTarget) < time()) {
                     $targetTarget = date('Y-m-d', strtotime('+1 day')) . ' ' . $text;
                 }
-               
                 $stmt = $db->prepare("INSERT INTO tasks (chat_id, text, category, next_trigger, repeat_days) VALUES (?, ?, ?, ?, ?)");
                 $stmt->execute([$chat_id, $data['text'], $data['cat'], $targetTarget, $data['repeat']]);
-               
                 $db->prepare("UPDATE user_session SET state = NULL, temp_text = NULL, temp_message_id = NULL WHERE chat_id = ?")->execute([$chat_id]);
                 deleteMessage($chat_id, $session['temp_message_id']);
-               
                 updateMainMessage($chat_id, $db, $session);
             } else {
                 apiRequest('editMessageText', [
@@ -165,7 +159,6 @@ if (!$is_callback) {
             }
         } else {
             deleteMessage($chat_id, $session['temp_message_id']);
-           
             $catKeyboard = [
                 'inline_keyboard' => [
                     [['text' => "🔴 فوری", 'callback_data' => "addcat_🔴 فوری"], ['text' => "💅 کارای سالن", 'callback_data' => "addcat_💅 کارای سالن"]],
@@ -174,14 +167,12 @@ if (!$is_callback) {
                     [['text' => "❌ انصراف", 'callback_data' => "cancel_temp"]]
                 ]
             ];
-           
             $tempRes = apiRequest('sendMessage', [
                 'chat_id' => $chat_id,
                 'text' => "🗂️ <b>انتخاب دسته‌بندی برای کار جدید:</b>\n« <i>" . htmlspecialchars($text) . "</i> »",
                 'parse_mode' => 'HTML',
                 'reply_markup' => $catKeyboard
             ]);
-           
             $temp_msg_id = $tempRes['ok'] ? $tempRes['result']['message_id'] : null;
             $db->prepare("UPDATE user_session SET state = 'AWAITING_ADD_CAT', temp_text = ?, temp_message_id = ? WHERE chat_id = ?")
                ->execute([json_encode(['text' => $text]), $temp_msg_id, $chat_id]);
@@ -192,16 +183,13 @@ if (!$is_callback) {
         $category = str_replace('addcat_', '', $callback_data);
         $data = json_decode($session['temp_text'], true);
         $data['cat'] = $category;
-       
         $db->prepare("UPDATE user_session SET temp_text = ? WHERE chat_id = ?")->execute([json_encode($data), $chat_id]);
-       
         $remKeyboard = [
             'inline_keyboard' => [
                 [['text' => "🔔 بله، تنظیم یادآوری", 'callback_data' => "wants_rem_yes"]],
                 [['text' => "❌ خیر، فقط در لیست باشد", 'callback_data' => "wants_rem_no"]]
             ]
         ];
-       
         apiRequest('editMessageText', [
             'chat_id' => $chat_id,
             'message_id' => $message_id,
@@ -209,16 +197,13 @@ if (!$is_callback) {
             'parse_mode' => 'HTML',
             'reply_markup' => $remKeyboard
         ]);
-       
     } elseif ($callback_data === 'wants_rem_no') {
         $data = json_decode($session['temp_text'], true);
         $db->prepare("INSERT INTO tasks (chat_id, text, category, next_trigger, repeat_days) VALUES (?, ?, ?, NULL, 0)")->execute([$chat_id, $data['text'], $data['cat']]);
-       
         $db->prepare("UPDATE user_session SET state = NULL, temp_text = NULL, temp_message_id = NULL WHERE chat_id = ?")->execute([$chat_id]);
         deleteMessage($chat_id, $message_id);
         updateMainMessage($chat_id, $db, $session);
         apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "کار بدون یادآوری اضافه شد."]);
-       
     } elseif ($callback_data === 'wants_rem_yes') {
         $intervalKeyboard = [
             'inline_keyboard' => [
@@ -234,14 +219,11 @@ if (!$is_callback) {
             'parse_mode' => 'HTML',
             'reply_markup' => $intervalKeyboard
         ]);
-       
     } elseif (strpos($callback_data, 'setint_') === 0) {
         $days = (int)str_replace('setint_', '', $callback_data);
         $data = json_decode($session['temp_text'], true);
         $data['repeat'] = $days;
-       
         $db->prepare("UPDATE user_session SET state = 'AWAITING_REM_TIME', temp_text = ? WHERE chat_id = ?")->execute([json_encode($data), $chat_id]);
-       
         apiRequest('editMessageText', [
             'chat_id' => $chat_id,
             'message_id' => $message_id,
@@ -251,21 +233,17 @@ if (!$is_callback) {
         apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id]);
     } elseif (strpos($callback_data, 'cron_done_') === 0) {
         $task_id = str_replace('cron_done_', '', $callback_data);
-       
         $stmt = $db->prepare("SELECT * FROM tasks WHERE id = ?");
         $stmt->execute([$task_id]);
         $task = $stmt->fetch(PDO::FETCH_ASSOC);
-       
         if ($task) {
             if ($task['repeat_days'] == 0) {
                 $db->prepare("DELETE FROM tasks WHERE id = ?")->execute([$task_id]);
             }
         }
-       
         deleteMessage($chat_id, $message_id);
         updateMainMessage($chat_id, $db, $session);
         apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "انجام شد! منو پاکسازی شد."]);
-       
     } elseif (strpos($callback_data, 'cron_seen_') === 0) {
         deleteMessage($chat_id, $message_id);
         apiRequest('answerCallbackQuery', ['callback_query_id' => $callback_query_id, 'text' => "تایید شد. تسک در لیست باقی ماند."]);
