@@ -1,4 +1,5 @@
 <?php
+date_default_timezone_set('Asia/Tehran');
 $botToken = "8986995462:AAHYYyD61BFTZSzlPTQF4ksmvQsnt9FePtQ";
 $apiUrl = "https://api.telegram.org/bot" . $botToken;
 
